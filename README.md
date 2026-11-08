@@ -1,0 +1,99 @@
+# DROPZONE — Player Draw Arena
+
+A PUBG-inspired React + TypeScript app with Tailwind CSS and Vite. Paste a roster, choose how many players to draw, and reveal the winners through a cinematic shuffle.
+
+## Run locally
+
+```sh
+npm install
+npm run dev
+```
+
+Open the local URL printed by Vite (normally http://localhost:5173).
+
+```sh
+npm test       # draw logic, guarantees, duplicate handling, validation
+npm run lint
+npm run build # production output in dist/
+npm run preview
+```
+
+Use Node.js 24 or later (including for the built-in SQLite server). Local-storage mode can run on any static host. No account or API keys are needed. Use HTTPS or localhost for browser cryptography and clipboard support.
+
+## Optional SQLite server
+
+Start the API and Vite together during development:
+
+```sh
+npm run dev:full
+```
+
+Or run them in separate terminals:
+
+```sh
+npm run server # API at http://127.0.0.1:8787
+npm run dev    # React app; /api requests proxy to port 8787
+```
+
+For a single server that builds and serves the finished app and API:
+
+```sh
+npm start
+```
+
+Open http://127.0.0.1:8787 after the build completes. `npm run server` also serves an existing `dist/` build. `npm run preview` proxies API calls to the separately running server.
+
+In **operator settings**, turn on **SQLite server storage**. The first connection to an empty database imports the currently displayed configuration. If the database already contains a configuration, that saved configuration is loaded instead; the browser's previous local copy is kept. Turning server storage off copies the displayed configuration back into this browser's local storage.
+
+The SQLite file is created automatically at `data/dropzone.sqlite` (ignored by Git). One configuration is stored as JSON in the `app_state` table, including names, resized base64 images, guaranteed names, draw count, event title and cinematic preference. No additional npm database packages are needed. In server mode those settings are read and written through the API rather than mirrored to browser storage; only the selected storage mode is remembered in the browser.
+
+Changes save automatically after a short debounce. API writes are serialized and revision-checked. If another browser saves first, the stale window's write is rejected instead of overwriting newer data. The app keeps unsaved edits on screen and shows an error; use browser storage to preserve those edits locally, or reload to load the latest server setup. Network failures offer **Retry storage**. Initial connection failures block editing and drawing until you reconnect or switch back to browser storage.
+
+**Reset app & refresh** clears the selected store. In server mode this resets the shared database configuration, so every browser using it will load defaults on its next refresh. In local mode it removes this app's saved configuration and storage-mode preference. Unrelated browser storage is preserved.
+
+The server is deliberately bound to localhost and has no login system. It rejects cross-site browser requests and is intended for a trusted local operator. Keep it local; authentication and deployment hardening would be needed before exposing shared guarantees or images publicly. For backups, stop the server and copy `data/dropzone.sqlite`; do not delete `data/` unless you intend to erase the server setup. Results, history, active-player exclusions and sound remain session-only in either storage mode.
+
+API endpoints (same origin): `GET /api/settings` returns `{ settings, revision }`; `PUT /api/settings` accepts `{ settings, revision }`; `DELETE /api/settings` accepts `{ revision }` and restores defaults. Invalid data is rejected, request bodies are limited to 26 MB, and stale revisions return HTTP 409.
+
+## Use the arena
+
+1. **Add / import players** opens the roster editor. Paste names on separate lines, or separate them with commas or semicolons. Names are trimmed and duplicates are removed without regard to capitalization. Supports up to 500 names, 64 characters each.
+2. Check or uncheck roster players to include or exclude them from the current session.
+3. Set **Players to draw** and click **Initiate draw**. Each player can appear only once in a draw. A new draw starts from the same active roster; previous winners remain eligible.
+4. Use the sound button for optional synthesized audio. **Stage view** hides the roster and setup controls for screen sharing. Press Escape to leave it.
+5. Copy or download completed results. **Draw history** keeps the last 20 draws in the current session and resets on refresh.
+
+## Team logos
+
+Use **Add / import players** to save your team names, then reopen it and scroll to **Team logos**. Upload a PNG, JPG, or WebP for each team (up to 5 MB per file). Images are fitted into a transparent 128 × 128 square without cropping or stretching and saved to the selected storage. Logo uploads and removals save automatically, independently of edits to the names list.
+
+Logos appear in the roster, animated shuffle, revealed winners, guaranteed-pick panel, and session history. Missing or unreadable logos use the included shield badge. **Remove** returns a team to that default. Saving a new roster keeps logos for exact matching names and drops logos for names removed from the roster. Existing saved rosters work without needing to be imported again.
+
+Logos are included in SQLite saves when server storage is enabled; otherwise they remain in this browser. They are not included in text result exports. Browser storage capacity limits local saves; storage failures are shown without discarding the in-memory setup.
+
+## Guaranteed picks
+
+Open the gear in the header or beside the sound control. Under **Guaranteed players**, select the names that must appear. Set the draw size to at least the number of guaranteed players.
+
+For example, for a draw of four with two guarantees, those two players are included, two others are sampled from the remaining active roster, and all four are shuffled into the reveal slots. The stage never distinguishes guaranteed picks. All players use the same animation and styling. Remaining selections and final ordering use `crypto.getRandomValues` with an unbiased Fisher–Yates shuffle; `Math.random` is used only for decorative cycling names and audio.
+
+Guarantees remain active for future draws until cleared. Roster edits discard guarantees for removed names; excluding a player also removes their guarantee. Too many guarantees or invalid draw sizes block the draw with an explanation.
+
+Roster, logos, event title, draw size, cinematic preference, and guarantees are saved in the selected storage. Active-player exclusions, audio preference, results, and history are session-only. If saving fails, the app retains the current setup in memory and displays an error.
+
+The setup panel is discreet, **not access-controlled**: anyone using this browser, inspecting local storage, or accessing the local API/database can see the guarantees. Close the panel before sharing your screen. This is an operator-configurable entertainment draw, not an auditable lottery system.
+
+The app respects reduced-motion preferences with a short, non-cycling reveal. Dialogs use native browser focus trapping and Escape handling; results have a screen-reader announcement.
+
+## Artwork and typography
+
+- PUBG library artwork: [Steam-hosted PUBG artwork](https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/578080/library_hero.jpg), stored locally in `public/images/battlegrounds.jpg`. PUBG artwork and marks belong to KRAFTON. Confirm permission for your intended public or commercial use, or replace the background with your own artwork. This community tool is not affiliated with KRAFTON.
+- Barlow and Barlow Condensed are loaded from Google Fonts, with system fallbacks when offline.
+- Icons, stage graphics, grain, animations, and the DROPZONE identity are SVG/CSS, requiring no image service or animation dependency.
+- Tailwind uses the [official Vite integration](https://tailwindcss.com/docs/installation/using-vite).
+
+Optional replacement background prompt:
+
+> Cinematic photorealistic esports battle royale key art, helmeted survivor in a dark tactical vest standing at center-right, a squad emerging from smoke behind them, abandoned transport plane wreckage and descending parachutes, dusty olive military palette, warm amber backlight, high contrast, realistic film grain. Leave the left third dark and uncluttered for typography. Wide 3:1 composition, no text, no logos, no watermarks.
+
+The project was checked in Chromium at eight viewport widths from 360px to 1920px, including roster editing, guaranteed picks, animation, invalid-input blocking, history, clipboard, downloads, persistence, stage view, and reduced motion. Physical-device and cross-browser checks have not been performed.
