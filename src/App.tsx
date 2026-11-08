@@ -652,7 +652,7 @@ function App() {
                 </div>
                 <div className="draw-settings">
                   <div className="flex items-center gap-3">
-                    <span className="setting-label">PLAYERS TO DRAW</span>
+                    <span className="setting-label">TEAMS TO DRAW</span>
                     <div className="number-stepper">
                       <button
                         disabled={busy || storageBlocked || count <= 1}
