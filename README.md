@@ -43,7 +43,7 @@ npm start
 
 Open http://127.0.0.1:8787 after the build completes. `npm run server` also serves an existing `dist/` build. `npm run preview` proxies API calls to the separately running server.
 
-In **operator settings**, turn on **SQLite server storage**. The first connection to an empty database imports the currently displayed configuration. If the database already contains a configuration, that saved configuration is loaded instead; the browser's previous local copy is kept. Turning server storage off copies the displayed configuration back into this browser's local storage.
+In **operator settings**, turn on **SQLite server storage**. New databases (including a legacy database with an empty configuration) are seeded on server startup with the exact 31 names in `src/draw.ts`, no uploaded logos, and no guaranteed picks. Connecting loads that server configuration; it does not import the browser roster. If the database already contains a saved configuration, it is preserved. **Reset app & refresh** in server mode explicitly restores the 31-team defaults. Turning server storage off copies the displayed configuration back into this browser's local storage.
 
 The SQLite file is created automatically at `data/dropzone.sqlite` (ignored by Git). One configuration is stored as JSON in the `app_state` table, including names, resized base64 images, guaranteed names, draw count, event title and cinematic preference. No additional npm database packages are needed. In server mode those settings are read and written through the API rather than mirrored to browser storage; only the selected storage mode is remembered in the browser.
 
@@ -51,9 +51,44 @@ Changes save automatically after a short debounce. API writes are serialized and
 
 **Reset app & refresh** clears the selected store. In server mode this resets the shared database configuration, so every browser using it will load defaults on its next refresh. In local mode it removes this app's saved configuration and storage-mode preference. Unrelated browser storage is preserved.
 
-The server is deliberately bound to localhost and has no login system. It rejects cross-site browser requests and is intended for a trusted local operator. Keep it local; authentication and deployment hardening would be needed before exposing shared guarantees or images publicly. For backups, stop the server and copy `data/dropzone.sqlite`; do not delete `data/` unless you intend to erase the server setup. Results, history, active-player exclusions and sound remain session-only in either storage mode.
+The server binds to localhost by default and has no login system. Host checks and origin allowlists reject unapproved browser requests. Changing the bind address or allowing a frontend origin does not add authentication; protect the service before exposing shared guarantees or images publicly. For backups, stop the server and copy the configured SQLite file; do not delete it unless you intend to erase the server setup. Results, history, active-player exclusions and sound remain session-only in either storage mode.
 
 API endpoints (same origin): `GET /api/settings` returns `{ settings, revision }`; `PUT /api/settings` accepts `{ settings, revision }`; `DELETE /api/settings` accepts `{ revision }` and restores defaults. Invalid data is rejected, request bodies are limited to 26 MB, and stale revisions return HTTP 409.
+
+## Environment configuration
+
+Copy `.env.example` to `.env` in this project. Both `npm run server` and `npm run dev:full` automatically load `.env` and optional `.env.local`; the latter overrides `.env`, and existing shell environment variables take priority. Vite loads these files for the frontend too. Restart after changes; **rebuild** after changing any `VITE_*` setting because those values are included in the browser bundle. Never put secrets in `VITE_*` variables. See [Vite's environment documentation](https://vite.dev/guide/env-and-mode).
+
+| Variable                    | Default                        | Purpose                                                                                                                                               |
+| --------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_BACKEND_URL`          | empty                          | Browser API origin, such as `http://127.0.0.1:9000`; empty uses `/api` on the app origin. Do not include `/api` in this value.                        |
+| `VITE_DEFAULT_STORAGE_MODE` | `local`                        | `local` or `server` for browsers without an existing saved mode preference.                                                                           |
+| `HOST`                      | `127.0.0.1`                    | Backend bind address; use `0.0.0.0` only if you intend to allow network connections.                                                                  |
+| `PORT`                      | `8787`                         | Backend listener port.                                                                                                                                |
+| `DATABASE_PATH`             | `data/dropzone.sqlite`         | SQLite file path, relative to the project or absolute. A new path creates a fresh 31-team database.                                                   |
+| `DIST_PATH`                 | `dist`                         | Built frontend directory served by the backend. A custom directory must contain your built app.                                                       |
+| `BACKEND_URL`               | derived from `HOST` and `PORT` | Vite dev/preview proxy target. Use when the API runs elsewhere.                                                                                       |
+| `FRONTEND_HOST`             | `127.0.0.1`                    | Vite dev/preview bind address.                                                                                                                        |
+| `FRONTEND_PORT`             | `5173`                         | Preferred Vite development port; Vite prints an alternate port if occupied.                                                                           |
+| `PREVIEW_PORT`              | `4173`                         | Preferred Vite preview port.                                                                                                                          |
+| `ALLOWED_HOSTS`             | empty                          | Additional explicit backend/dev-server hostnames, comma-separated, without a scheme or port. Loopback names and `HOST` are already allowed.           |
+| `ALLOWED_ORIGINS`           | empty                          | Exact extra frontend origins allowed by the API, comma-separated. No wildcards, paths or credentials. Same-origin requests work without this setting. |
+
+**Recommended single-origin setup:** leave `VITE_BACKEND_URL` and `BACKEND_URL` empty. Changing `PORT` updates the dev/preview proxy automatically. `npm start` serves both the app and API on that backend port.
+
+**Direct frontend-to-backend setup**, for example a frontend on port 3000 and API on port 9000:
+
+```dotenv
+PORT=9000
+FRONTEND_PORT=3000
+VITE_BACKEND_URL=http://127.0.0.1:9000
+ALLOWED_ORIGINS=http://127.0.0.1:3000
+VITE_DEFAULT_STORAGE_MODE=server
+```
+
+Use the exact origin you open in the browser (`localhost` and `127.0.0.1` are different origins). If Vite chooses a different port, update `ALLOWED_ORIGINS` for direct connections. Cross-origin API access includes CORS preflight handling. Backend URL values must be complete HTTP(S) origins with no path. If your frontend is HTTPS, its backend URL must also use HTTPS to avoid mixed-content blocking.
+
+Existing non-empty databases are never overwritten at startup. To replace an old roster deliberately, use the reset button in server mode or point `DATABASE_PATH` at a new file. Flags, spelling, punctuation and internal spacing in the provided team list are preserved. Teams without uploaded images display the default badge.
 
 ## Use the arena
 

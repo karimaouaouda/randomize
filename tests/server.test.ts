@@ -5,7 +5,9 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import { createAppServer } from "../server/index.ts";
+import { readServerConfig } from "../server/config.ts";
 import { DEFAULTS, validateSettings } from "../src/settings.ts";
 
 async function listen(server: Server) {
@@ -35,6 +37,61 @@ const body = (method: string, value: unknown) => ({
   body: JSON.stringify(value),
 });
 
+test("legacy empty SQLite configurations are seeded with the event roster at startup", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "dropzone-empty-"));
+  const path = join(directory, "app.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec(
+    "CREATE TABLE app_state (id INTEGER PRIMARY KEY, payload TEXT, revision INTEGER NOT NULL DEFAULT 0); INSERT INTO app_state VALUES (1, NULL, 0);",
+  );
+  db.close();
+  const server = createAppServer(path);
+  t.after(async () => {
+    await close(server);
+    await rm(directory, { recursive: true, force: true });
+  });
+  const url = await listen(server);
+  const data = await (await fetch(`${url}/api/settings`)).json();
+  assert.deepEqual(data.settings, DEFAULTS);
+  assert.equal(data.settings.names.length, 31);
+  assert.deepEqual(data.settings.logos, {});
+});
+
+test("explicitly allowed cross-origin frontends can preflight, load and save; other origins remain blocked", async (t) => {
+  const origin = "https://draw.example.com";
+  const server = createAppServer(
+    ":memory:",
+    undefined,
+    readServerConfig({ ALLOWED_ORIGINS: origin }),
+  );
+  t.after(() => close(server));
+  const url = await listen(server);
+  const headers = { Origin: origin, "Sec-Fetch-Site": "cross-site" };
+  const preflight = await fetch(`${url}/api/settings`, {
+    method: "OPTIONS",
+    headers: {
+      ...headers,
+      "Access-Control-Request-Method": "PUT",
+      "Access-Control-Request-Headers": "content-type",
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), origin);
+  const response = await fetch(`${url}/api/settings`, {
+    ...body("PUT", { settings: setup, revision: 0 }),
+    headers: { ...headers, "Content-Type": "application/json" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("access-control-allow-origin"), origin);
+  const loaded = await fetch(`${url}/api/settings`, { headers });
+  assert.deepEqual((await loaded.json()).settings, setup);
+  const denied = await fetch(`${url}/api/settings`, {
+    headers: { Origin: "https://other.example.com" },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.headers.get("access-control-allow-origin"), null);
+});
+
 test("SQLite retains names, images, guarantees, and settings across restarts, and resets safely", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "dropzone-db-"));
   const path = join(directory, "app.sqlite");
@@ -45,7 +102,7 @@ test("SQLite retains names, images, guarantees, and settings across restarts, an
   });
   let url = await listen(server);
   assert.deepEqual(await (await fetch(`${url}/api/settings`)).json(), {
-    settings: null,
+    settings: DEFAULTS,
     revision: 0,
   });
   let response = await fetch(
@@ -142,7 +199,7 @@ test("rejects bad inputs and cross-site requests without changing stored data", 
   );
   assert.equal((await fetch(`${url}/api/unknown`)).status, 404);
   assert.deepEqual(await (await fetch(`${url}/api/settings`)).json(), {
-    settings: null,
+    settings: DEFAULTS,
     revision: 0,
   });
 });
@@ -189,7 +246,7 @@ test("enforces payload limits and serves built files without exposing files outs
   });
   assert.equal(response.status, 413);
   assert.deepEqual(await (await fetch(`${url}/api/settings`)).json(), {
-    settings: null,
+    settings: DEFAULTS,
     revision: 0,
   });
 });

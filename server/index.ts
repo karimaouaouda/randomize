@@ -6,8 +6,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULTS, validateSettings } from "../src/settings.ts";
+import { projectRoot, readServerConfig } from "./config.ts";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
 const MAX_BODY = 26 * 1024 * 1024;
 class HttpError extends Error {
   status: number;
@@ -47,14 +47,21 @@ function readBody(request: IncomingMessage): Promise<unknown> {
 
 export function createAppServer(
   databasePath: string,
-  distPath = resolve(root, "dist"),
+  distPath = resolve(projectRoot, "dist"),
+  config = readServerConfig({}),
 ) {
   if (databasePath !== ":memory:")
     mkdirSync(dirname(databasePath), { recursive: true });
   const db = new DatabaseSync(databasePath);
   db.exec(`PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT, revision INTEGER NOT NULL DEFAULT 0);
-    INSERT OR IGNORE INTO app_state (id, payload, revision) VALUES (1, NULL, 0);`);
+    `);
+  db.prepare(
+    "INSERT OR IGNORE INTO app_state (id, payload, revision) VALUES (1, ?, 0)",
+  ).run(JSON.stringify(DEFAULTS));
+  db.prepare(
+    "UPDATE app_state SET payload = ? WHERE id = 1 AND payload IS NULL",
+  ).run(JSON.stringify(DEFAULTS));
   const read = db.prepare(
     "SELECT payload, revision FROM app_state WHERE id = 1",
   );
@@ -83,17 +90,37 @@ export function createAppServer(
     };
     try {
       const url = new URL(request.url || "/", `http://${request.headers.host}`);
+      const origin = request.headers.origin;
+      const permittedOrigin =
+        origin &&
+        (origin === `http://${request.headers.host}` ||
+          origin === `https://${request.headers.host}` ||
+          config.allowedOrigins.includes(origin));
       if (
-        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        (request.headers.origin &&
-          request.headers.origin !== `http://${request.headers.host}`)
+        !config.allowedHosts.has(
+          url.hostname.toLowerCase().replace(/^\[|\]$/g, ""),
+        ) ||
+        (origin && !permittedOrigin) ||
+        (!origin && request.headers["sec-fetch-site"] === "cross-site")
       )
         throw new HttpError(
           403,
-          "Only same-origin localhost requests are allowed.",
+          "Host or origin is not allowed. Check ALLOWED_HOSTS and ALLOWED_ORIGINS.",
         );
+      if (permittedOrigin) {
+        response.setHeader("Access-Control-Allow-Origin", origin);
+        response.setHeader("Vary", "Origin");
+      }
       if (url.pathname === "/api/settings") {
+        if (request.method === "OPTIONS") {
+          response.writeHead(204, {
+            "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Max-Age": "600",
+          });
+          response.end();
+          return;
+        }
         if (request.method === "GET") {
           const row = read.get()!;
           json(200, {
@@ -180,15 +207,17 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  const port = Number(process.env.PORT || 8787);
-  const databasePath = resolve(root, "data/dropzone.sqlite");
-  const server = createAppServer(databasePath);
+  const config = readServerConfig();
+  const { port, host, databasePath, distPath } = config;
+  const server = createAppServer(databasePath, distPath, config);
   server.on("error", (error) => {
     console.error("Could not start DROPZONE:", error.message);
     process.exitCode = 1;
   });
-  server.listen(port, "127.0.0.1", () =>
-    console.log(`DROPZONE: http://127.0.0.1:${port}\nSQLite: ${databasePath}`),
+  server.listen(port, host, () =>
+    console.log(
+      `DROPZONE: http://${host.includes(":") ? `[${host}]` : host}:${port}\nSQLite: ${databasePath}`,
+    ),
   );
   const shutdown = () => server.close();
   process.on("SIGINT", shutdown);

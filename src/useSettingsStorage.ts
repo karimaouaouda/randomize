@@ -1,12 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { readLocalSettings, validateSettings } from "./settings";
+import { DEFAULTS, readLocalSettings, validateSettings } from "./settings";
 import type { Settings } from "./settings";
 
 type Mode = "local" | "server";
+const backendUrl = (import.meta.env.VITE_BACKEND_URL || "")
+  .trim()
+  .replace(/\/+$/, "");
 async function requestSettings(method = "GET", body?: unknown) {
   let response: Response;
   try {
-    response = await fetch("/api/settings", {
+    response = await fetch(`${backendUrl}/api/settings`, {
       method,
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -37,7 +40,8 @@ async function requestSettings(method = "GET", body?: unknown) {
 export function useSettingsStorage() {
   const [mode, setMode] = useState<Mode>(() => {
     try {
-      return localStorage.getItem("dropzone-storage-mode") === "server"
+      return (localStorage.getItem("dropzone-storage-mode") ||
+        import.meta.env.VITE_DEFAULT_STORAGE_MODE) === "server"
         ? "server"
         : "local";
     } catch {
@@ -92,7 +96,7 @@ export function useSettingsStorage() {
     let snapshot = result.settings;
     let nextRevision = result.revision;
     if (!snapshot) {
-      snapshot = validateSettings(current.current);
+      snapshot = DEFAULTS;
       const initialized = await requestSettings("PUT", {
         settings: snapshot,
         revision: nextRevision,

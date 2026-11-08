@@ -1136,9 +1136,9 @@ function App() {
             </div>
             <p>{storage.loading ? "Connecting…" : storage.status}</p>
             <p>
-              An empty server imports your current setup. An existing server
-              loads its saved setup. Turning this off copies the current setup
-              to browser storage.
+              New databases start with the 31-team event roster and no uploaded
+              logos. Connecting loads the server's saved setup. Turning this off
+              copies the current setup to browser storage.
             </p>
             {storage.error && (
               <>
